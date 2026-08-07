@@ -1,0 +1,17 @@
+{
+  "name": "@traceform/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    "./models/*": "./src/models/*",
+    "./utils/*": "./src/utils/*"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3"
+  },
+  "peerDependencies": {
+    "mongoose": "^8.0.0"
+  }
+}

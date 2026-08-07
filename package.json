@@ -1,0 +1,14 @@
+{
+  "name": "traceform",
+  "private": true,
+  "version": "1.0.0",
+  "description": "AI-native reliability & traffic intelligence platform",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace=apps/api",
+    "dev:gateway": "npm run dev --workspace=apps/gateway"
+  }
+}
