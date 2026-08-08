@@ -15,6 +15,7 @@ function sanitizeProject(project) {
     trackedRoutes: project.trackedRoutes,
     status: project.status,
     anomalyThresholds: project.anomalyThresholds,
+    rateLimit: project.rateLimit,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
   };
@@ -80,6 +81,20 @@ export async function regenerateApiKey(projectId, userId) {
 
   // this is the only time the raw key should ever be returned to the client
   return { apiKey: project.apiKey };
+}
+
+// internal use only (e.g. orchestrator building a K8s Job) — never expose via a controller,
+// since this bypasses sanitizeProject and includes the raw apiKey
+export async function getProjectRawWithApiKey(projectId) {
+  const project = await Project.findById(projectId).select("+apiKey");
+
+  if (!project) {
+    const error = new Error("Project not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return project;
 }
 
 export { sanitizeProject };

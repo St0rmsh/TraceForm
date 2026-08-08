@@ -21,7 +21,8 @@
     "mongoose": "^8.0.0",
     "morgan": "^1.11.0",
     "zod": "^3.23.0",
-    "socket.io": "^4.7.5"
+    "socket.io": "^4.7.5",
+    "@kubernetes/client-node": "^0.21.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"
