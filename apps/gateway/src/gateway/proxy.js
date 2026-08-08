@@ -1,9 +1,6 @@
 import { createProxyMiddleware } from "http-proxy-middleware";
+import { captureRequest } from "../capture/requestCapture.js";
 
-// router dynamically picks the target per-request based on req.project,
-// which resolveProject middleware attaches before this runs. This is what
-// lets one gateway serve many registered projects instead of proxying to
-// a single fixed target.
 export const proxy = createProxyMiddleware({
   router: (req) => req.project.targetBaseUrl,
   changeOrigin: true,
@@ -11,9 +8,22 @@ export const proxy = createProxyMiddleware({
 
   on: {
     proxyReq: (proxyReq, req) => {
-      // stamp the start time on the raw request so downstream capture
-      // logic (next feature) can compute latency on the response
       req._proxyStartTime = Date.now();
+    },
+
+    proxyRes: (proxyRes, req) => {
+      const latencyMs = Date.now() - (req._proxyStartTime || Date.now());
+
+      // fire-and-forget: capture must never block or delay the actual
+      // response being sent back to the client
+      captureRequest({
+        projectId: req.project.id,
+        method: req.method,
+        path: req.originalUrl || req.url,
+        statusCode: proxyRes.statusCode,
+        latencyMs,
+        ip: req.ip || req.socket?.remoteAddress,
+      });
     },
 
     error: (err, req, res) => {

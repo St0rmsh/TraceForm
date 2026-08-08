@@ -26,6 +26,12 @@ export const createProjectSchema = z.object({
       latencyMs: z.number().min(0).optional(),
     })
     .optional(),
+  rateLimit: z
+    .object({
+      enabled: z.boolean().optional(),
+      requestsPerMinute: z.number().min(1).optional(),
+    })
+    .optional(),
 });
 
 export const updateProjectSchema = createProjectSchema.partial().extend({

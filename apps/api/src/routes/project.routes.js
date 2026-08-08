@@ -6,6 +6,7 @@ import {
   update,
   remove,
   regenerateKey,
+  getHealth,
 } from "../controllers/project.controller.js";
 import { validate } from "../middlewares/validate.js";
 import { authenticate } from "../middlewares/authenticate.js";
@@ -46,5 +47,12 @@ router.delete("/:id", remove);
 // @route  POST /api/projects/:id/regenerate-key
 // @access Private
 router.post("/:id/regenerate-key", regenerateKey);
+
+
+// @desc Get project health
+// @route GET /api/projects/:id/health
+// @access Private
+router.get("/:id/health", getHealth);
+
 
 export default router;

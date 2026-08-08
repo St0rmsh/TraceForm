@@ -7,6 +7,7 @@ import {
   deleteProject,
   regenerateApiKey,
 } from "../services/project.service.js";
+import { getProjectHealth } from "../services/health.service.js";
 
 export const create = asyncHandler(async (req, res) => {
   const project = await createProject(req.user.id, req.body);
@@ -62,5 +63,15 @@ export const regenerateKey = asyncHandler(async (req, res) => {
     success: true,
     message: "API key regenerated successfully",
     data: { apiKey },
+  });
+});
+
+
+export const getHealth = asyncHandler(async (req, res) => {
+  const health = await getProjectHealth(req.params.id, req.user.id);
+ 
+  res.status(200).json({
+    success: true,
+    data: health,
   });
 });

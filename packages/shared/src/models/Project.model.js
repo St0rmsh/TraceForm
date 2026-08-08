@@ -64,6 +64,10 @@ const projectSchema = new Schema(
       errorRatePercent: { type: Number, default: 5 },
       latencyMs: { type: Number, default: 1000 },
     },
+    rateLimit: {
+      enabled: { type: Boolean, default: false },
+      requestsPerMinute: { type: Number, default: 100 },
+    },
   },
   { timestamps: true }
 );
