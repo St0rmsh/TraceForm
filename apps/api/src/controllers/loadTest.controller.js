@@ -4,9 +4,8 @@ import {
   listLoadTests,
   getLoadTestById,
   deleteLoadTest,
-  assertRunOwnership,
 } from "../services/loadTest.service.js";
-import { startLoadTest } from "../orchestration/loadTestOrchestrator.js";
+import { startLoadTest } from "../orchestration/orchestrator.service.js";
 
 export const create = asyncHandler(async (req, res) => {
   const run = await createLoadTest(req.params.projectId, req.user.id, req.body);
@@ -42,5 +41,15 @@ export const remove = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     message: "Load test run deleted successfully",
+  });
+});
+
+export const start = asyncHandler(async (req, res) => {
+  const result = await startLoadTest(req.params.runId, req.user.id);
+
+  res.status(202).json({
+    success: true,
+    message: "Load test started",
+    data: result,
   });
 });
