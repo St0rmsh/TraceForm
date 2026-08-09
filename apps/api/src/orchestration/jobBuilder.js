@@ -20,8 +20,7 @@ export function buildLoadTestJob(run, project) {
     { name: "REDIS_PORT", value: String(config.redis.port) },
     { name: "REDIS_USERNAME", value: config.redis.username },
     { name: "REDIS_PASSWORD", value: config.redis.password },
-    { name: "REDIS_TLS", value: config.redis.tls ? "true" : "false" },
-  ];
+    { name: "REDIS_TLS", value: "false" },  ];
 
   if (run.config.body) {
     envVars.push({ name: "BODY", value: JSON.stringify(run.config.body) });

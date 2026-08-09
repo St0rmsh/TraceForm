@@ -39,4 +39,7 @@ export const config = {
   },
 
   clientUrl: process.env.CLIENT_URL || "http://localhost:5173",
+  mistralApiKey: process.env.MISTRAL_API_KEY,
+  cohereApiKey: process.env.COHERE_API_KEY,
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY,
 };

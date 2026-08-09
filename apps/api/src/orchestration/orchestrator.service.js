@@ -1,71 +1,86 @@
+import Project from "@traceform/shared/models/Project.model.js";
 import LoadTestRun from "@traceform/shared/models/LoadTestRun.model.js";
 import { batchApi, NAMESPACE } from "./k8sClient.js";
 import { buildLoadTestJob, getJobName } from "./jobBuilder.js";
-import { getProjectRawWithApiKey } from "../services/project.service.js";
 import { redisConnection } from "../config/redis.js";
+import { assertRunOwnership } from "../services/loadTest.service.js";
+import { applyChaos, resetChaos } from "./chaosController.js";
+import { analyzeBottleneck } from "../agents/bottleneckAnalysis.agent.js";
 
-const POLL_INTERVAL_MS = 3000;
-const POLL_TIMEOUT_BUFFER_MS = 60000;
+const POLL_INTERVAL_MS = 2000;
+const POLL_TIMEOUT_BUFFER_MS = 60000; // grace period beyond the run's own duration
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function podResultsKey(runId) {
+  return `traceform:loadtest:${runId}:podresults`;
 }
 
-async function pollJobUntilComplete(jobName, expectedCompletions, timeoutMs) {
-  const deadline = Date.now() + timeoutMs;
+async function pollJobUntilComplete(jobName, expectedPodCount, timeoutMs) {
+  const startTime = Date.now();
 
-  while (Date.now() < deadline) {
-    const { body } = await batchApi.readNamespacedJobStatus(jobName, NAMESPACE);
-    const succeeded = body.status?.succeeded || 0;
-    const failed = body.status?.failed || 0;
+  while (Date.now() - startTime < timeoutMs) {
+    const { body: job } = await batchApi.readNamespacedJobStatus(jobName, NAMESPACE);
+    const succeeded = job.status?.succeeded || 0;
+    const failed = job.status?.failed || 0;
 
-    if (succeeded + failed >= expectedCompletions) {
+    if (succeeded + failed >= expectedPodCount) {
       return { succeeded, failed, timedOut: false };
     }
 
-    await sleep(POLL_INTERVAL_MS);
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
   }
 
   return { succeeded: 0, failed: 0, timedOut: true };
 }
 
-function aggregateResults(podResults) {
-  const validResults = podResults.filter((r) => !r.failed);
+function aggregatePodResults(rawResults) {
+  const parsed = rawResults.map((r) => JSON.parse(r));
+  const successful = parsed.filter((r) => !r.failed);
 
-  if (validResults.length === 0) {
-    return null;
+  if (successful.length === 0) {
+    return null; // every pod failed — caller decides how to handle
   }
 
-  const totalRequests = validResults.reduce((sum, r) => sum + r.totalRequests, 0);
-  const successCount = validResults.reduce((sum, r) => sum + r.successCount, 0);
-  const errorCount = validResults.reduce((sum, r) => sum + r.errorCount, 0);
-  const throughputRps = validResults.reduce((sum, r) => sum + r.throughputRps, 0);
-  const maxLatencyMs = Math.max(...validResults.map((r) => r.maxLatencyMs));
+  const totalRequests = successful.reduce((sum, r) => sum + r.totalRequests, 0);
+  const successCount = successful.reduce((sum, r) => sum + r.successCount, 0);
+  const errorCount = successful.reduce((sum, r) => sum + r.errorCount, 0);
+  const throughputRps = successful.reduce((sum, r) => sum + r.throughputRps, 0);
 
-  const weightedLatencySum = validResults.reduce(
+  // weighted average latency by request volume per pod
+  const weightedLatencySum = successful.reduce(
     (sum, r) => sum + r.avgLatencyMs * r.totalRequests,
     0
   );
   const avgLatencyMs = totalRequests > 0 ? weightedLatencySum / totalRequests : 0;
 
-  const avgP95 = validResults.reduce((sum, r) => sum + r.p95LatencyMs, 0) / validResults.length;
-  const avgP99 = validResults.reduce((sum, r) => sum + r.p99LatencyMs, 0) / validResults.length;
+  // percentiles can't be mathematically combined across independent samples —
+  // taking the max across pods is a conservative (worst-case) approximation,
+  // a documented simplification rather than statistically precise merging
+  const p95LatencyMs = Math.max(...successful.map((r) => r.p95LatencyMs));
+  const p99LatencyMs = Math.max(...successful.map((r) => r.p99LatencyMs));
+  const maxLatencyMs = Math.max(...successful.map((r) => r.maxLatencyMs));
 
   return {
     totalRequests,
     successCount,
     errorCount,
     avgLatencyMs: Math.round(avgLatencyMs),
-    p95LatencyMs: Math.round(avgP95),
-    p99LatencyMs: Math.round(avgP99),
+    p95LatencyMs: Math.round(p95LatencyMs),
+    p99LatencyMs: Math.round(p99LatencyMs),
     maxLatencyMs: Math.round(maxLatencyMs),
     throughputRps: Math.round(throughputRps * 100) / 100,
   };
 }
 
-export async function startLoadTest(runId) {
-  const run = await LoadTestRun.findById(runId);
-  if (!run) throw new Error("Load test run not found");
+async function cleanupJob(jobName) {
+  try {
+    await batchApi.deleteNamespacedJob(jobName, NAMESPACE, undefined, undefined, undefined, undefined, "Background");
+  } catch (err) {
+    console.error(`[orchestrator] Failed to clean up job ${jobName}:`, err.message);
+  }
+}
+
+export async function startLoadTest(runId, userId) {
+  const run = await assertRunOwnership(runId, userId);
 
   if (run.status !== "pending") {
     const error = new Error(`Cannot start a run with status "${run.status}"`);
@@ -73,67 +88,97 @@ export async function startLoadTest(runId) {
     throw error;
   }
 
-  const project = await getProjectRawWithApiKey(run.project.toString());
+  // needs the raw apiKey, which the sanitized project service deliberately excludes
+  const project = await Project.findById(run.project).select("+apiKey");
+  if (!project) {
+    const error = new Error("Parent project not found");
+    error.statusCode = 404;
+    throw error;
+  }
 
-  const jobSpec = buildLoadTestJob(run, project);
-  const podCount = jobSpec.spec.parallelism;
+  const jobManifest = buildLoadTestJob(run, project);
+  const jobName = jobManifest.metadata.name;
+  const podCount = jobManifest.spec.parallelism;
 
   run.status = "queued";
+  run.startedAt = new Date();
   await run.save();
 
-  try {
-    await batchApi.createNamespacedJob(NAMESPACE, jobSpec);
+  // fire the actual orchestration asynchronously — the API responds immediately,
+  // status updates happen in the background as the job progresses
+  runInBackground(run, jobManifest, jobName, podCount, project.targetBaseUrl);
 
-    run.status = "running";
-    run.startedAt = new Date();
-    await run.save();
-
-    watchAndFinalize(run._id.toString(), getJobName(runId), podCount, run.config.durationSeconds);
-
-    return { runId: run._id, status: run.status };
-  } catch (err) {
-    run.status = "failed";
-    await run.save();
-    throw new Error(`Failed to create K8s Job: ${err.message}`);
-  }
+  return { runId: run._id, status: run.status, jobName };
 }
 
-async function watchAndFinalize(runId, jobName, podCount, durationSeconds) {
-  const timeoutMs = durationSeconds * 1000 + POLL_TIMEOUT_BUFFER_MS;
+async function runInBackground(run, jobManifest, jobName, podCount, targetBaseUrl) {
+  let chaosWasApplied = false;
 
   try {
-    const { succeeded, timedOut } = await pollJobUntilComplete(jobName, podCount, timeoutMs);
+    const chaosResult = await applyChaos(targetBaseUrl, run.chaos);
+    chaosWasApplied = chaosResult.applied;
 
-    const resultsKey = `traceform:loadtest:${runId}:podresults`;
-    const rawResults = await redisConnection.lrange(resultsKey, 0, -1);
-    const podResults = rawResults.map((r) => JSON.parse(r));
+    await batchApi.createNamespacedJob(NAMESPACE, jobManifest);
 
-    const aggregated = aggregateResults(podResults);
+    run.status = "running";
+    await run.save();
 
-    const run = await LoadTestRun.findById(runId);
-    if (!run) return;
+    const timeoutMs = run.config.durationSeconds * 1000 + POLL_TIMEOUT_BUFFER_MS;
+    const { timedOut } = await pollJobUntilComplete(jobName, podCount, timeoutMs);
 
-    if (timedOut || !aggregated || succeeded < podCount) {
+    const rawResults = await redisConnection.lrange(podResultsKey(run._id.toString()), 0, -1);
+
+    if (timedOut || rawResults.length === 0) {
+      run.status = "failed";
+      run.completedAt = new Date();
+      await run.save();
+      await cleanupJob(jobName);
+      return;
+    }
+
+   const aggregated = aggregatePodResults(rawResults);
+
+    if (!aggregated) {
       run.status = "failed";
     } else {
-      run.status = "completed";
       run.results = aggregated;
+      run.status = "completed";
+      run.aiAnalysis = await analyzeBottleneck(run); // null if unavailable — never blocks completion
     }
 
     run.completedAt = new Date();
     await run.save();
-
-    await redisConnection.del(resultsKey);
-
-    console.log(`[orchestrator] Run ${runId} finished with status: ${run.status}`);
+    await cleanupJob(jobName);
   } catch (err) {
-    console.error(`[orchestrator] Error finalizing run ${runId}:`, err.message);
-
-    const run = await LoadTestRun.findById(runId);
-    if (run) {
-      run.status = "failed";
-      run.completedAt = new Date();
-      await run.save();
+    console.error(`[orchestrator] Run ${run._id} failed:`, err.message);
+    run.status = "failed";
+    run.completedAt = new Date();
+    await run.save().catch(() => {});
+    await cleanupJob(jobName);
+  } finally {
+    // guaranteed regardless of outcome — a chaos-injected target must
+    // never be left in a degraded state after the run ends
+    if (chaosWasApplied) {
+      await resetChaos(targetBaseUrl);
     }
   }
+}
+
+export async function getLiveProgress(runId, userId) {
+  await assertRunOwnership(runId, userId);
+
+  const rawResults = await redisConnection.lrange(podResultsKey(runId), 0, -1);
+  if (rawResults.length === 0) {
+    return null; // no live reporting pods
+  }
+
+  const parsed = rawResults.map((r) => JSON.parse(r));
+
+  const totalRequests = parsed.reduce((sum, r) => sum + r.requestsSoFar, 0);
+  const maxElapsedSeconds = Math.max(...parsed.map((r) => r.elapsedSeconds));
+
+  return {
+    totalRequests,
+    elapsedSeconds: maxElapsedSeconds,
+  };
 }

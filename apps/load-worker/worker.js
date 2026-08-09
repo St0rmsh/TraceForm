@@ -42,6 +42,8 @@ const redis = new Redis({
 });
 
 const resultsKey = `traceform:loadtest:${RUN_ID}:podresults`;
+const liveKey = `traceform:loadtest:${RUN_ID}:live:${process.env.HOSTNAME || Math.random().toString(36).slice(2)}`;
+const LIVE_TTL_SECONDS = 60;
 
 async function reportResult(summary) {
   await redis.lpush(resultsKey, JSON.stringify(summary));
@@ -52,8 +54,18 @@ async function reportFailure(message) {
   await reportResult({ failed: true, error: message });
 }
 
+async function reportProgress(snapshot) {
+  try {
+    await redis.set(liveKey, JSON.stringify(snapshot), "EX", LIVE_TTL_SECONDS);
+  } catch (err) {
+    console.error("[worker] Failed to report progress:", err.message);
+  }
+}
+
 async function run() {
   console.log(`[worker] Starting load run ${RUN_ID} — ${METHOD} ${TARGET_URL}${ROUTE}`);
+
+  const startTime = Date.now();
 
   const instanceOpts = {
     url: `${TARGET_URL}${ROUTE}`,
@@ -67,10 +79,11 @@ async function run() {
     ...(BODY ? { body: BODY } : {}),
   };
 
-  autocannon(instanceOpts, async (err, result) => {
+  const instance = autocannon(instanceOpts, async (err, result) => {
     if (err) {
       console.error("[worker] autocannon error:", err.message);
       await reportFailure(err.message);
+      await redis.del(liveKey);
       await redis.quit();
       process.exit(1);
     }
@@ -89,8 +102,19 @@ async function run() {
 
     console.log("[worker] Run complete:", summary);
     await reportResult(summary);
+    await redis.del(liveKey);
     await redis.quit();
     process.exit(0);
+  });
+
+  instance.on("tick", (counter) => {
+    const elapsedSeconds = Math.round((Date.now() - startTime) / 1000);
+
+    reportProgress({
+      elapsedSeconds,
+      requestsSoFar: counter.counter,
+      timestamp: new Date().toISOString(),
+    });
   });
 }
 

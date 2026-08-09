@@ -69,4 +69,45 @@ export async function deleteLoadTest(runId, userId) {
   await LoadTestRun.findByIdAndDelete(runId);
 }
 
+
+function computeDelta(baselineValue, comparisonValue) {
+  const delta = comparisonValue - baselineValue;
+  const percentChange = baselineValue !== 0 ? Math.round((delta / baselineValue) * 10000) / 100 : null;
+
+  return { delta: Math.round(delta * 100) / 100, percentChange };
+}
+
+export async function compareLoadTests(baselineRunId, comparisonRunId, userId) {
+  const baseline = await assertRunOwnership(baselineRunId, userId);
+  const comparison = await assertRunOwnership(comparisonRunId, userId);
+
+  if (baseline.status !== "completed" || comparison.status !== "completed") {
+    const error = new Error("Both runs must be completed to compare results");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const metrics = [
+    "totalRequests",
+    "successCount",
+    "errorCount",
+    "avgLatencyMs",
+    "p95LatencyMs",
+    "p99LatencyMs",
+    "maxLatencyMs",
+    "throughputRps",
+  ];
+
+  const deltas = {};
+  for (const metric of metrics) {
+    deltas[metric] = computeDelta(baseline.results[metric], comparison.results[metric]);
+  }
+
+  return {
+    baseline: sanitizeRun(baseline),
+    comparison: sanitizeRun(comparison),
+    deltas,
+  };
+}
+
 export { sanitizeRun, assertRunOwnership };
