@@ -1,7 +1,7 @@
 import { redisConnection } from "../config/redis.js";
 import { getProjectById } from "./project.service.js";
 
-const HOT_LOG_FETCH_COUNT = 200;
+const HOT_LOG_FETCH_COUNT = 200; // matches the gateway's rolling window size
 
 function hotLogKey(projectId) {
   return `traceform:hotlogs:${projectId}`;
@@ -44,9 +44,11 @@ function summarizeRequests(requests, thresholds) {
   };
 }
 
-export async function getProjectHealth(projectId, userId) {
-  const project = await getProjectById(projectId, userId);
-
+// internal — no ownership check, used by both the REST endpoint (after its own
+// ownership check) and the background anomaly scanner (which operates across
+// all projects system-wide, not on behalf of any specific user)
+export async function computeHealthSnapshot(project) {
+  const projectId = project._id ? project._id.toString() : project.id;
   const raw = await redisConnection.lrange(hotLogKey(projectId), 0, HOT_LOG_FETCH_COUNT - 1);
   const requests = raw.map((r) => JSON.parse(r));
 
@@ -64,9 +66,11 @@ export async function getProjectHealth(projectId, userId) {
     ...summarizeRequests(routeRequests, project.anomalyThresholds),
   }));
 
-  return {
-    projectId,
-    overall,
-    routes,
-  };
+  return { projectId, overall, routes };
+}
+
+export async function getProjectHealth(projectId, userId) {
+  // ownership check — reuses the same guard as every other project-scoped read
+  const project = await getProjectById(projectId, userId);
+  return computeHealthSnapshot(project);
 }

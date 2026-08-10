@@ -5,6 +5,7 @@ import { config } from "./config/config.js";
 import authRoutes from "./routes/auth.routes.js";
 import projectRoutes from "./routes/project.routes.js";
 import loadTestRoutes from "./routes/loadTest.routes.js";
+import incidentRoutes from "./routes/incident.routes.js";
 import { notFound, errorHandler } from "./middlewares/errorHandler.js";
 import morgan from "morgan";
 
@@ -27,6 +28,7 @@ app.get("/health", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/", loadTestRoutes);
+app.use("/api", incidentRoutes);
 
 
 app.use(notFound);

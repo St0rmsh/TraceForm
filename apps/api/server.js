@@ -4,12 +4,15 @@ import { connectDB } from "./src/config/db.js";
 import "./src/config/redis.js";
 import { config } from "./src/config/config.js";
 import { initSocket } from "./src/realtime/socket.js";
+import { startAnomalyWorker } from "./src/workers/anomalyDetection.worker.js";
 
 async function startServer() {
   await connectDB();
 
   const httpServer = http.createServer(app);
   initSocket(httpServer);
+
+  startAnomalyWorker();
 
   httpServer.listen(config.port, () => {
     console.log(`[server] Traceform API running on port ${config.port} (${config.nodeEnv})`);
