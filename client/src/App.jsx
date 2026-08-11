@@ -33,9 +33,9 @@ function Hydrator({ children }) {
   if (isHydrating) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-base">
-        <p className="font-mono text-xs uppercase tracking-widest text-textMuted">
+       <p className="font-mono text-xs uppercase tracking-widest text-ink-muted">
           Establishing Secure Session...
-        </p>
+       </p>
       </div>
     );
   }
