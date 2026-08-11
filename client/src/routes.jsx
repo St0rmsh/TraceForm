@@ -2,6 +2,8 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./features/Auth/hooks/useAuth";
 import Login from "./features/Auth/ui/Login";
 import Register from "./features/Auth/ui/Register";
+import Dashboard from "./features/Projects/ui/Dashboard";
+import CreateProject from "./features/Projects/ui/CreateProject";
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated, isHydrating } = useAuth();
@@ -31,7 +33,16 @@ export default function AppRoutes() {
         path="/dashboard"
         element={
           <ProtectedRoute>
-            <div className="p-8 text-ink">Dashboard placeholder — Projects feature next</div>
+            <Dashboard />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/projects/new"
+        element={
+          <ProtectedRoute>
+            <CreateProject />
           </ProtectedRoute>
         }
       />
