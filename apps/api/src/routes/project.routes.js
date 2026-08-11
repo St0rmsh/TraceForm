@@ -11,6 +11,7 @@ import {
 import { validate } from "../middlewares/validate.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { createProjectSchema, updateProjectSchema } from "../validations/project.validation.js";
+import { dashboard } from "../controllers/incident.controller.js";
 
 const router = Router();
 
@@ -27,6 +28,12 @@ router.post("/", validate(createProjectSchema), create);
 // @route  GET /api/projects
 // @access Private
 router.get("/", list);
+
+
+// @desc Dashboard
+// @route GET /api/projects/dashboard
+// @access Private
+router.get("/dashboard", dashboard);
 
 // @desc   Get single project
 // @route  GET /api/projects/:id
@@ -53,6 +60,8 @@ router.post("/:id/regenerate-key", regenerateKey);
 // @route GET /api/projects/:id/health
 // @access Private
 router.get("/:id/health", getHealth);
+
+
 
 
 export default router;

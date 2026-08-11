@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import Project from "@traceform/shared/models/Project.model.js";
+import { computeHealthSnapshot } from "./health.service.js";
 
 function generateApiKey() {
   // prefix helps identify key type at a glance (e.g. in logs, dashboards)
@@ -95,6 +96,23 @@ export async function getProjectRawWithApiKey(projectId) {
   }
 
   return project;
+}
+
+
+export async function getDashboard(userId) {
+  const projects = await Project.find({ owner: userId }).sort({ createdAt: -1 });
+
+  const dashboard = await Promise.all(
+    projects.map(async (project) => {
+      const health = await computeHealthSnapshot(project);
+      return {
+        ...sanitizeProject(project),
+        health: health.overall,
+      };
+    })
+  );
+
+  return dashboard;
 }
 
 export { sanitizeProject };

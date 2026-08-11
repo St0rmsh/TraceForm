@@ -65,11 +65,17 @@ const incidentSchema = new Schema(
       type: healthSnapshotSchema,
       default: null,
     },
+    
     rootCauseAnalysis: {
       rootCause: { type: String, default: null },
       confidence: { type: String, enum: ["low", "medium", "high"], default: null },
       contributingFactors: { type: [String], default: [] },
       analyzedAt: { type: Date, default: null },
+    },
+    aiSummary: {
+        summary: { type: String, default: null },
+        runbookSteps: { type: [String], default: [] },
+        generatedAt: { type: Date, default: null },
     },
     timeline: {
       type: [timelineEntrySchema],

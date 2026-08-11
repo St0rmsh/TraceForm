@@ -2,6 +2,8 @@ import Incident from "@traceform/shared/models/Incident.model.js";
 import { getProjectById } from "./project.service.js";
 import Project from "@traceform/shared/models/Project.model.js";
 import { runRootCauseChain } from "../agents/rootCause/graph.js";
+import { generateSummary } from "../agents/incidentSummary.agent.js";
+
 
 function sanitizeIncident(incident) {
   return {
@@ -14,6 +16,7 @@ function sanitizeIncident(incident) {
     status: incident.status,
     healthSnapshot: incident.healthSnapshot,
     rootCauseAnalysis: incident.rootCauseAnalysis,
+    aiSummary: incident.aiSummary,
     timeline: incident.timeline,
     resolvedAt: incident.resolvedAt,
     resolutionNotes: incident.resolutionNotes,
@@ -123,6 +126,103 @@ export async function analyzeRootCause(incidentId, userId) {
   incident.timeline.push({
     event: "root_cause_analysis",
     message: `AI root-cause analysis completed (confidence: ${result.confidence})`,
+  });
+
+  await incident.save();
+  return sanitizeIncident(incident);
+}
+
+
+
+export async function summarizeIncident(incidentId, userId) {
+  const incident = await assertIncidentOwnership(incidentId, userId);
+
+  const result = await generateSummary(incident);
+
+  if (!result || !result.summary) {
+    const error = new Error(
+      "Incident summary unavailable (AI provider not configured, quota exhausted, or call failed)"
+    );
+    error.statusCode = 503;
+    throw error;
+  }
+
+  incident.aiSummary = {
+    summary: result.summary,
+    runbookSteps: result.runbookSteps,
+    generatedAt: new Date(),
+  };
+
+  incident.timeline.push({
+    event: "ai_summary",
+    message: "AI incident summary generated",
+  });
+
+  await incident.save();
+  return sanitizeIncident(incident);
+}
+
+
+
+export async function addTimelineEntry(incidentId, userId, { event, message }) {
+  const incident = await assertIncidentOwnership(incidentId, userId);
+
+  incident.timeline.push({ event, message });
+
+  // "investigating" is both a timeline event and a meaningful status
+  // transition — link them so the incident's own status reflects reality
+  if (event === "investigating" && incident.status === "open") {
+    incident.status = "investigating";
+  }
+
+  await incident.save();
+  return sanitizeIncident(incident);
+}
+
+export async function getTimeline(incidentId, userId) {
+  const incident = await assertIncidentOwnership(incidentId, userId);
+  return incident.timeline;
+}
+
+
+
+export async function resolveIncident(incidentId, userId, { resolutionNotes }) {
+  const incident = await assertIncidentOwnership(incidentId, userId);
+
+  if (incident.status === "resolved") {
+    const error = new Error("Incident is already resolved");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  incident.status = "resolved";
+  incident.resolvedAt = new Date();
+  incident.resolutionNotes = resolutionNotes;
+
+  incident.timeline.push({
+    event: "resolved",
+    message: resolutionNotes,
+  });
+
+  await incident.save();
+  return sanitizeIncident(incident);
+}
+
+export async function reopenIncident(incidentId, userId) {
+  const incident = await assertIncidentOwnership(incidentId, userId);
+
+  if (incident.status !== "resolved") {
+    const error = new Error("Incident is not currently resolved");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  incident.status = "open";
+  incident.resolvedAt = null;
+
+  incident.timeline.push({
+    event: "reopened",
+    message: "Incident reopened",
   });
 
   await incident.save();
