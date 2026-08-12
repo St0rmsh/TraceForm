@@ -1,94 +1,71 @@
-import { useSelector, useDispatch } from "react-redux";
-import { useCallback } from "react";
+import { apiFetch } from "../../../api/client";
 
-import {
-  createLoadTestThunk,
-  fetchLoadTestsThunk,
-  fetchLoadTestThunk,
-  deleteLoadTestThunk,
-  startLoadTestThunk,
-  fetchLiveProgressThunk,
-  compareLoadTestsThunk,
-  clearComparison,
-  clearLiveProgress,
-} from "../state/loadTestsSlice";
+/* =========================================================
+   CRUD
+========================================================= */
 
-export function useLoadTests() {
-  const dispatch = useDispatch();
+export function createIncident(projectId, data) {
+  return apiFetch(`/projects/${projectId}/incidents`, {
+    method: "POST",
 
-  const {
-    items,
-    status,
-    current,
-    currentStatus,
-    liveProgress,
-    comparison,
-    comparisonStatus,
-    error,
-  } = useSelector((state) => state.loadTests);
+    body: JSON.stringify(data),
+  });
+}
 
-  const createLoadTest = useCallback(
-    (projectId, data) =>
-      dispatch(createLoadTestThunk({ projectId, data })).unwrap(),
-    [dispatch]
-  );
+export function fetchIncidents(projectId) {
+  return apiFetch(`/projects/${projectId}/incidents`);
+}
 
-  const fetchLoadTests = useCallback(
-    (projectId) => dispatch(fetchLoadTestsThunk(projectId)).unwrap(),
-    [dispatch]
-  );
+export function fetchIncident(incidentId) {
+  return apiFetch(`/incidents/${incidentId}`);
+}
 
-  const fetchLoadTest = useCallback(
-    (runId) => dispatch(fetchLoadTestThunk(runId)).unwrap(),
-    [dispatch]
-  );
+/* =========================================================
+   AI ANALYSIS
+========================================================= */
 
-  const deleteLoadTest = useCallback(
-    (runId) => dispatch(deleteLoadTestThunk(runId)).unwrap(),
-    [dispatch]
-  );
+export function analyzeRootCause(incidentId) {
+  return apiFetch(`/incidents/${incidentId}/analyze`, {
+    method: "POST",
+  });
+}
 
-  const startLoadTest = useCallback(
-    (runId) => dispatch(startLoadTestThunk(runId)).unwrap(),
-    [dispatch]
-  );
+export function summarizeIncident(incidentId) {
+  return apiFetch(`/incidents/${incidentId}/summarize`, {
+    method: "POST",
+  });
+}
 
-  const fetchLiveProgress = useCallback(
-    (runId) => dispatch(fetchLiveProgressThunk(runId)).unwrap(),
-    [dispatch]
-  );
+/* =========================================================
+   TIMELINE
+========================================================= */
 
-  const compareLoadTests = useCallback(
-    (baselineRunId, comparisonRunId) =>
-      dispatch(compareLoadTestsThunk({ baselineRunId, comparisonRunId })).unwrap(),
-    [dispatch]
-  );
+export function addTimelineEntry(incidentId, data) {
+  return apiFetch(`/incidents/${incidentId}/timeline`, {
+    method: "POST",
 
-  const resetComparison = useCallback(() => dispatch(clearComparison()), [dispatch]);
-  const resetLiveProgress = useCallback(() => dispatch(clearLiveProgress()), [dispatch]);
+    body: JSON.stringify(data),
+  });
+}
 
-  return {
-    runs: items,
-    isLoading: status === "loading",
+export function fetchTimeline(incidentId) {
+  return apiFetch(`/incidents/${incidentId}/timeline`);
+}
 
-    current,
-    isCurrentLoading: currentStatus === "loading",
+/* =========================================================
+   RESOLUTION
+========================================================= */
 
-    liveProgress,
+export function resolveIncident(incidentId, data) {
+  return apiFetch(`/incidents/${incidentId}/resolve`, {
+    method: "POST",
 
-    comparison,
-    isComparisonLoading: comparisonStatus === "loading",
+    body: JSON.stringify(data),
+  });
+}
 
-    error,
-
-    createLoadTest,
-    fetchLoadTests,
-    fetchLoadTest,
-    deleteLoadTest,
-    startLoadTest,
-    fetchLiveProgress,
-    compareLoadTests,
-    resetComparison,
-    resetLiveProgress,
-  };
+export function reopenIncident(incidentId) {
+  return apiFetch(`/incidents/${incidentId}/reopen`, {
+    method: "POST",
+  });
 }
